@@ -1,0 +1,14 @@
+*.csv
+.venv/
+.vscode/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.ipynb_checkpoints
+logs/
+data/
+outputs/
+.idea/
+*.log
+*.sqlite3
