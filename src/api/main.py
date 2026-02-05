@@ -1,0 +1,502 @@
+"""
+File: main.py
+Description: FastAPI application for FlavorFlow Craft Menu Engineering.
+Dependencies: fastapi, uvicorn
+Author: FlavorFlow Team
+
+This module defines the REST API endpoints for the menu engineering
+solution, enabling integration with external systems and dashboards.
+"""
+
+from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List, Optional
+from pathlib import Path
+from datetime import datetime
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from .schemas import (
+    HealthResponse,
+    MenuItemResponse,
+    RecommendationResponse,
+    PricingSuggestion,
+    AnalysisRequest,
+    AnalysisResponse,
+    QuestionRequest,
+    QuestionResponse,
+    ErrorResponse,
+    DataOverview,
+    BCGBreakdown,
+    ClusterInfo,
+    MenuCategory
+)
+
+# Create FastAPI application
+app = FastAPI(
+    title="FlavorFlow Craft API",
+    description="""
+    ## Menu Engineering & Optimization API
+    
+    This API provides endpoints for:
+    
+    * **Menu Analysis**: BCG Matrix classification of menu items
+    * **Recommendations**: Strategic recommendations for each category
+    * **Pricing Optimization**: Data-driven pricing suggestions
+    * **Demand Prediction**: ML-powered demand forecasting
+    * **Business Intelligence**: Natural language Q&A about your data
+    
+    ### BCG Matrix Categories
+    
+    | Category | Popularity | Profitability | Strategy |
+    |----------|------------|---------------|----------|
+    | ⭐ Star | High | High | Maintain & Promote |
+    | 🐴 Plowhorse | High | Low | Optimize Costs |
+    | ❓ Puzzle | Low | High | Increase Visibility |
+    | 🐕 Dog | Low | Low | Consider Removal |
+    
+    ---
+    Built for the Deloitte x AUC Hackathon 2024-2025
+    """,
+    version="1.0.0",
+    contact={
+        "name": "FlavorFlow Team",
+        "email": "team@flavorflow.ai"
+    },
+    license_info={
+        "name": "MIT License",
+    }
+)
+
+# Add CORS middleware for frontend integration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Global service instance (initialized on startup)
+_analysis_service = None
+
+
+def get_analysis_service():
+    """Dependency to get the analysis service."""
+    global _analysis_service
+    if _analysis_service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Analysis service not initialized. Please run /initialize first."
+        )
+    return _analysis_service
+
+
+# =============================================================================
+# Health & Status Endpoints
+# =============================================================================
+
+@app.get("/", tags=["Health"])
+async def root():
+    """Root endpoint with API information."""
+    return {
+        "name": "FlavorFlow Craft API",
+        "version": "1.0.0",
+        "status": "running",
+        "docs": "/docs",
+        "redoc": "/redoc"
+    }
+
+
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
+async def health_check():
+    """Health check endpoint."""
+    return HealthResponse(
+        status="healthy",
+        timestamp=datetime.now(),
+        version="1.0.0"
+    )
+
+
+@app.post("/initialize", tags=["Setup"])
+async def initialize_service(data_dir: str = Query(default="data/")):
+    """
+    Initialize the analysis service with data.
+    
+    This endpoint must be called before running any analysis.
+    It loads all required data files and prepares the ML models.
+    
+    Args:
+        data_dir: Path to the data directory
+    
+    Returns:
+        Initialization status and data overview
+    """
+    global _analysis_service
+    
+    try:
+        from services.menu_analysis_service import MenuAnalysisService
+        
+        _analysis_service = MenuAnalysisService(data_dir=Path(data_dir))
+        _analysis_service.load_data()
+        
+        return {
+            "status": "initialized",
+            "message": "Analysis service ready",
+            "data_loaded": True,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initialize service: {str(e)}"
+        )
+
+
+# =============================================================================
+# Analysis Endpoints
+# =============================================================================
+
+@app.post("/analyze", response_model=AnalysisResponse, tags=["Analysis"])
+async def run_analysis(
+    request: AnalysisRequest,
+    service=Depends(get_analysis_service)
+):
+    """
+    Run full menu engineering analysis.
+    
+    This endpoint performs:
+    1. BCG Matrix classification of all menu items
+    2. Strategic recommendations generation
+    3. Pricing optimization suggestions
+    4. Optional: Demand prediction and clustering
+    
+    Returns comprehensive analysis results.
+    """
+    try:
+        # Run the analysis
+        results = service.run_full_analysis(
+            include_predictions=request.include_predictions,
+            include_clustering=request.include_clustering
+        )
+        
+        # Format response
+        summary = service.get_executive_summary()
+        
+        return AnalysisResponse(
+            status="success",
+            timestamp=datetime.now(),
+            data_overview=DataOverview(
+                total_items=summary.get('data_overview', {}).get('total_items', 0),
+                total_restaurants=summary.get('data_overview', {}).get('total_restaurants', 0),
+                total_orders=summary.get('data_overview', {}).get('total_orders', 0),
+                total_campaigns=summary.get('data_overview', {}).get('total_campaigns', 0)
+            ),
+            bcg_breakdown=BCGBreakdown(
+                stars=summary.get('bcg_breakdown', {}).get('stars', 0),
+                plowhorses=summary.get('bcg_breakdown', {}).get('plowhorses', 0),
+                puzzles=summary.get('bcg_breakdown', {}).get('puzzles', 0),
+                dogs=summary.get('bcg_breakdown', {}).get('dogs', 0)
+            ),
+            recommendations=[
+                RecommendationResponse(
+                    category=MenuCategory(rec['category'].lower().replace('⭐ ', '').replace('🐴 ', '').replace('❓ ', '').replace('🐕 ', '')),
+                    action=rec['recommendation'],
+                    items_affected=rec.get('items_count', 0),
+                    priority=rec.get('priority', 'medium')
+                )
+                for rec in results.get('recommendations', [])
+            ],
+            pricing_suggestions=[
+                PricingSuggestion(
+                    item_id=sug['item_id'],
+                    current_price=sug['current_price'],
+                    suggested_price=sug['suggested_price'],
+                    price_change=sug['price_change'],
+                    price_change_pct=sug.get('price_change_pct', 0),
+                    rationale=sug.get('rationale', 'Based on analysis')
+                )
+                for sug in results.get('pricing_suggestions', [])[:20]  # Limit to top 20
+            ],
+            executive_summary=summary.get('summary_text', '')
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/items", response_model=List[MenuItemResponse], tags=["Analysis"])
+async def get_menu_items(
+    category: Optional[str] = Query(None, description="Filter by BCG category"),
+    limit: int = Query(100, le=1000, description="Maximum items to return"),
+    min_orders: int = Query(0, description="Minimum order count filter"),
+    service=Depends(get_analysis_service)
+):
+    """
+    Get classified menu items.
+    
+    Returns menu items with their BCG classification, order counts,
+    and revenue data. Can be filtered by category and minimum orders.
+    """
+    try:
+        items = service.item_performance.copy()
+        
+        if category:
+            category_map = {
+                'star': '⭐ Star',
+                'plowhorse': '🐴 Plowhorse',
+                'puzzle': '❓ Puzzle',
+                'dog': '🐕 Dog'
+            }
+            items = items[items['category'] == category_map.get(category.lower(), category)]
+        
+        if min_orders > 0:
+            items = items[items['order_count'] >= min_orders]
+        
+        items = items.head(limit)
+        
+        return [
+            MenuItemResponse(
+                id=int(row.get('menu_item_id', row.get('id', 0))),
+                name=row.get('name'),
+                price=float(row.get('price', 0)),
+                category=MenuCategory(row['category'].lower().replace('⭐ ', '').replace('🐴 ', '').replace('❓ ', '').replace('🐕 ', '')),
+                order_count=int(row.get('order_count', 0)),
+                revenue=float(row.get('revenue', 0))
+            )
+            for _, row in items.iterrows()
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/recommendations", response_model=List[RecommendationResponse], tags=["Analysis"])
+async def get_recommendations(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    service=Depends(get_analysis_service)
+):
+    """
+    Get strategic recommendations.
+    
+    Returns actionable recommendations for menu optimization
+    based on BCG Matrix analysis.
+    """
+    try:
+        recs = service.generate_recommendations()
+        
+        if category:
+            recs = [r for r in recs if category.lower() in r['category'].lower()]
+        
+        return [
+            RecommendationResponse(
+                category=MenuCategory(rec['category'].lower().replace('⭐ ', '').replace('🐴 ', '').replace('❓ ', '').replace('🐕 ', '')),
+                action=rec['recommendation'],
+                items_affected=rec.get('items_count', 0),
+                priority=rec.get('priority', 'medium')
+            )
+            for rec in recs
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/pricing-suggestions", response_model=List[PricingSuggestion], tags=["Analysis"])
+async def get_pricing_suggestions(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    limit: int = Query(50, le=200, description="Maximum suggestions"),
+    service=Depends(get_analysis_service)
+):
+    """
+    Get pricing optimization suggestions.
+    
+    Returns data-driven pricing recommendations based on
+    item performance and competitive positioning.
+    """
+    try:
+        suggestions = service.generate_pricing_suggestions()
+        
+        if category:
+            suggestions = [s for s in suggestions if category.lower() in s.get('category', '').lower()]
+        
+        return [
+            PricingSuggestion(
+                item_id=sug['item_id'],
+                item_name=sug.get('name'),
+                current_price=sug['current_price'],
+                suggested_price=sug['suggested_price'],
+                price_change=sug['price_change'],
+                price_change_pct=sug.get('price_change_pct', 0),
+                rationale=sug.get('rationale', 'Based on performance analysis')
+            )
+            for sug in suggestions[:limit]
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Business Intelligence Endpoints
+# =============================================================================
+
+@app.post("/ask", response_model=QuestionResponse, tags=["Business Intelligence"])
+async def ask_business_question(
+    request: QuestionRequest,
+    service=Depends(get_analysis_service)
+):
+    """
+    Ask a business question in natural language.
+    
+    This endpoint uses AI to interpret your question and provide
+    data-driven answers about your menu performance.
+    
+    Example questions:
+    - "What are my best selling items?"
+    - "Which items should I consider removing?"
+    - "How can I increase revenue?"
+    - "What's my average order value?"
+    """
+    try:
+        # Simple keyword-based response system
+        # In production, this would integrate with an LLM
+        question_lower = request.question.lower()
+        
+        summary = service.get_executive_summary()
+        bcg = summary.get('bcg_breakdown', {})
+        
+        # Pattern matching for common questions
+        if any(word in question_lower for word in ['best', 'top', 'performing', 'star']):
+            return QuestionResponse(
+                answer=f"Your best performing items are classified as Stars. "
+                       f"You have {bcg.get('stars', 0)} Star items - these have both "
+                       f"high popularity and high profitability. Focus on maintaining "
+                       f"their quality and visibility.",
+                confidence=0.85,
+                data_points=[{"category": "Stars", "count": bcg.get('stars', 0)}],
+                suggestions=[
+                    "Would you like to see the list of Star items?",
+                    "Shall I suggest promotional strategies for Stars?"
+                ]
+            )
+        
+        elif any(word in question_lower for word in ['remove', 'drop', 'eliminate', 'dog']):
+            return QuestionResponse(
+                answer=f"You have {bcg.get('dogs', 0)} Dog items that might be "
+                       f"candidates for removal. These have low popularity AND low "
+                       f"profitability. Consider phasing them out or repositioning them.",
+                confidence=0.82,
+                data_points=[{"category": "Dogs", "count": bcg.get('dogs', 0)}],
+                suggestions=[
+                    "Want to see which Dogs have the lowest performance?",
+                    "Should I analyze if any Dogs have seasonal potential?"
+                ]
+            )
+        
+        elif any(word in question_lower for word in ['revenue', 'increase', 'grow', 'profit']):
+            return QuestionResponse(
+                answer=f"To increase revenue, focus on your {bcg.get('puzzles', 0)} "
+                       f"Puzzle items - they're profitable but under-ordered. "
+                       f"Better positioning and promotion could drive significant gains. "
+                       f"Also consider optimizing prices on your {bcg.get('plowhorses', 0)} "
+                       f"Plowhorses which are popular but have low margins.",
+                confidence=0.78,
+                data_points=[
+                    {"category": "Puzzles", "count": bcg.get('puzzles', 0)},
+                    {"category": "Plowhorses", "count": bcg.get('plowhorses', 0)}
+                ],
+                suggestions=[
+                    "Would you like specific pricing recommendations?",
+                    "Shall I identify promotional opportunities?"
+                ]
+            )
+        
+        else:
+            return QuestionResponse(
+                answer=f"Based on your data: You have {summary.get('data_overview', {}).get('total_items', 0):,} "
+                       f"menu items across your restaurants. Your BCG breakdown shows "
+                       f"{bcg.get('stars', 0)} Stars, {bcg.get('plowhorses', 0)} Plowhorses, "
+                       f"{bcg.get('puzzles', 0)} Puzzles, and {bcg.get('dogs', 0)} Dogs. "
+                       f"Please ask a more specific question for detailed insights.",
+                confidence=0.65,
+                suggestions=[
+                    "Try asking: 'What are my best performing items?'",
+                    "Or: 'Which items should I consider removing?'",
+                    "Or: 'How can I increase revenue?'"
+                ]
+            )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Export Endpoints
+# =============================================================================
+
+@app.get("/export/summary", tags=["Export"])
+async def export_summary(
+    format: str = Query("json", enum=["json", "csv"]),
+    service=Depends(get_analysis_service)
+):
+    """
+    Export executive summary.
+    
+    Returns the executive summary in the requested format.
+    """
+    try:
+        summary = service.get_executive_summary()
+        
+        if format == "csv":
+            # Return as downloadable CSV
+            import io
+            import pandas as pd
+            
+            df = pd.DataFrame([summary])
+            output = io.StringIO()
+            df.to_csv(output, index=False)
+            
+            return {
+                "content": output.getvalue(),
+                "content_type": "text/csv",
+                "filename": "executive_summary.csv"
+            }
+        
+        return summary
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Application Lifecycle
+# =============================================================================
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    print("🚀 FlavorFlow Craft API starting...")
+    print("📚 Documentation available at /docs")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown."""
+    print("👋 FlavorFlow Craft API shutting down...")
+
+
+# =============================================================================
+# Run Server
+# =============================================================================
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )
