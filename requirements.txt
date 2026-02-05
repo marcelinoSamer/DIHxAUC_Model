@@ -49,6 +49,7 @@ python-dotenv>=1.0.0
 requests>=2.31.0
 python-dateutil>=2.8.0
 tqdm>=4.65.0
+scipy>=1.11.0  # For statistical calculations (safety stock, distributions)
 
 # =============================================================================
 # Optional - Uncomment if needed
