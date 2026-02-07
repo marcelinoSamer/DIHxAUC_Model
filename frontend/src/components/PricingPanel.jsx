@@ -1,6 +1,6 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { TrendingUp, DollarSign, ArrowUpRight } from "lucide-react";
-import { pricingSuggestions } from "../data/dashboardData";
+import { pricingSuggestions } from "../data/dashboardData.js";
 
 const formatNum = (n) => {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";

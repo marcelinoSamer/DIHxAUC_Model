@@ -1,4 +1,4 @@
-import { chartImages } from "../data/dashboardData";
+import { chartImages } from "../data/dashboardData.js";
 
 const charts = [
   { src: chartImages.menuEngineering, label: "Menu Engineering (BCG Matrix)", desc: "Classification of menu items by popularity and profitability into Stars, Plowhorses, Puzzles, and Dogs." },

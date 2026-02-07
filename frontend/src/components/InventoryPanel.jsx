@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, ArrowUpDown, Search, ChevronDown, ChevronUp } from "lucide-react";
-import { inventoryAlerts } from "../data/dashboardData";
-import { executiveSummary } from "../data/dashboardData";
+import { inventoryAlerts } from "../data/dashboardData.js";
+import { executiveSummary } from "../data/dashboardData.js";
 
 const statusConfig = {
   critical: { label: "🔴 Critical", className: "status-critical", color: "#ef4444" },
