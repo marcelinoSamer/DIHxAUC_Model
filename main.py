@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Render entry point for FlavorFlow Craft API
+Entry point for FlavorFlow Craft API (Render / local).
 """
+import os
 import sys
 from pathlib import Path
 
@@ -9,10 +10,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-# Import the FastAPI app
-from api.main import app
+# Import the FastAPI app — Render auto-detects the `app` variable
+from api.main import app  # noqa: F401
 
-# For Render, the app variable needs to be available at module level
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

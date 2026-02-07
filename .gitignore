@@ -13,4 +13,6 @@ outputs/
 .idea/
 *.log
 *.sqlite3
+*.db
+restaurant_data.db
 .env

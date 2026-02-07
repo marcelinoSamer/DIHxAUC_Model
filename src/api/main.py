@@ -31,7 +31,6 @@ from .schemas import (
     DataOverview,
     BCGBreakdown,
     ClusterInfo,
-    ClusterInfo,
     MenuCategory
 )
 from src.database import get_db, engine, Base
@@ -83,8 +82,8 @@ app = FastAPI(
 # Add CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -208,7 +207,7 @@ def create_restaurant(restaurant: RestaurantCreate, db: Session = Depends(get_db
 
 @app.post("/menu-items", tags=["Data Ingestion"])
 def create_menu_item(item: MenuItemCreate, db: Session = Depends(get_db)):
-    db_item = MenuItem(**item.dict())
+    db_item = MenuItem(**item.model_dump())
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
@@ -671,11 +670,10 @@ async def startup_event():
         print("⚠️  LLM_API_KEY not found in .env — chatbot will not work")
 
     # ── 2. Load data & run analyses in background so server starts fast ──
-    import asyncio
+    import threading
 
-    async def _load_data_context():
+    def _load_data_context():
         global _analysis_service
-        import time
         try:
             from src.services.menu_analysis_service import MenuAnalysisService
             from src.services.inventory_analysis_service import InventoryAnalysisService
@@ -710,7 +708,7 @@ async def startup_event():
             traceback.print_exc()
 
     # Run in a background thread so the server is responsive immediately
-    asyncio.get_event_loop().run_in_executor(None, lambda: asyncio.run(_load_data_context()))
+    threading.Thread(target=_load_data_context, daemon=True).start()
 
 
 @app.on_event("shutdown")
