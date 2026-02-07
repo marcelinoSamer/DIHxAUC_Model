@@ -17,6 +17,7 @@
 | Resource | URL |
 |----------|-----|
 | **Source Code** | [github.com/marcelinoSamer/DIHxAUC_Model](https://github.com/marcelinoSamer/DIHxAUC_Model) |
+| **Live Demo** | [di-hx-auc-model.vercel.app](https://di-hx-auc-model.vercel.app) |
 | **API Docs** | `<backend-url>/docs` (Swagger UI) |
 | **Notebook** | [`main.ipynb`](main.ipynb) — Full interactive analysis |
 
@@ -189,11 +190,7 @@ python -m src.main inventory   # Demand forecasting (recommended)
 python -m src.main analyze     # BCG matrix analysis
 ```
 
-### 5. Jupyter Notebook
 
-Open `main.ipynb` in VS Code or Jupyter and run all cells.
-
----
 
 ## API Reference
 
