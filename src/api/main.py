@@ -31,8 +31,18 @@ from .schemas import (
     DataOverview,
     BCGBreakdown,
     ClusterInfo,
+    ClusterInfo,
     MenuCategory
 )
+from src.database import get_db, engine, Base
+from src.models.db_models import Restaurant, MenuItem, Order, OrderItem, InventoryReport
+from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
+from pydantic import BaseModel
+import pandas as pd
+import io
+from fastapi import UploadFile, File
+
 
 # Create FastAPI application
 app = FastAPI(
@@ -153,6 +163,140 @@ async def initialize_service(data_dir: str = Query(default="data/")):
             status_code=500,
             detail=f"Failed to initialize service: {str(e)}"
         )
+
+
+# =============================================================================
+# Data Ingestion Endpoints (NEW)
+# =============================================================================
+
+class RestaurantCreate(BaseModel):
+    name: str
+    location: str
+
+class MenuItemCreate(BaseModel):
+    restaurant_id: int
+    name: str
+    price: float
+    category: str
+    description: Optional[str] = None
+
+class OrderCreate(BaseModel):
+    restaurant_id: int
+    total_amount: float
+    items: List[dict] # List of {menu_item_id: int, quantity: int, price: float}
+
+@app.post("/restaurants", tags=["Data Ingestion"])
+def create_restaurant(restaurant: RestaurantCreate, db: Session = Depends(get_db)):
+    db_restaurant = Restaurant(name=restaurant.name, location=restaurant.location)
+    db.add(db_restaurant)
+    db.commit()
+    db.refresh(db_restaurant)
+    return db_restaurant
+
+@app.post("/menu-items", tags=["Data Ingestion"])
+def create_menu_item(item: MenuItemCreate, db: Session = Depends(get_db)):
+    db_item = MenuItem(**item.dict())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+@app.post("/orders", tags=["Data Ingestion"])
+def create_order(order: OrderCreate, db: Session = Depends(get_db)):
+    db_order = Order(
+        restaurant_id=order.restaurant_id, 
+        total_amount=order.total_amount,
+        timestamp=datetime.utcnow()
+    )
+    db.add(db_order)
+    db.commit()
+    db.refresh(db_order)
+    
+    for item in order.items:
+        db_item = OrderItem(
+            order_id=db_order.id,
+            menu_item_id=item['menu_item_id'],
+            quantity=item['quantity'],
+            price_at_time=item['price']
+        )
+        db.add(db_item)
+    
+    db.commit()
+    return {"status": "success", "order_id": db_order.id}
+
+
+@app.post("/inventory/ingest", tags=["Data Ingestion"])
+async def ingest_inventory(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Ingest inventory data from a CSV file.
+    """
+    try:
+        contents = await file.read()
+        df = pd.read_csv(io.StringIO(contents.decode('utf-8')))
+        
+        # Basic validation
+        if 'item_id' not in df.columns or 'current_stock' not in df.columns:
+             raise HTTPException(status_code=400, detail="CSV must contain 'item_id' and 'current_stock'")
+
+        reports = []
+        timestamp = datetime.utcnow()
+        
+        for _, row in df.iterrows():
+            report = InventoryReport(
+                date=timestamp,
+                item_id=int(row['item_id']),
+                current_stock=float(row['current_stock']),
+                reorder_point=float(row.get('reorder_point', 0)),
+                safety_stock=float(row.get('safety_stock', 0))
+            )
+            reports.append(report)
+            
+        db.add_all(reports)
+        db.commit()
+        
+        return {"status": "success", "items_processed": len(reports)}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/recommendations/weekly", tags=["Analysis"])
+def get_weekly_recommendations(db: Session = Depends(get_db)):
+    """
+    Get weekly recommendations based on latest inventory and sales data.
+    """
+    # 1. Get latest inventory snapshot
+    latest_reports = db.query(InventoryReport).order_by(desc(InventoryReport.date)).all()
+    
+    # Simple logic for now: Identify low stock items
+    recommendations = []
+    
+    seen_items = set()
+    for report in latest_reports:
+        if report.item_id in seen_items:
+            continue
+        seen_items.add(report.item_id)
+        
+        item = db.query(MenuItem).filter(MenuItem.id == report.item_id).first()
+        item_name = item.name if item else f"Item {report.item_id}"
+        
+        if report.current_stock < report.reorder_point:
+             recommendations.append({
+                 "type": "Restock Alert",
+                 "item": item_name,
+                 "message": f"Stock is low ({report.current_stock}). Reorder point is {report.reorder_point}.",
+                 "priority": "High"
+             })
+        elif report.current_stock > (report.reorder_point * 3): # Arbitrary excess logic
+             recommendations.append({
+                 "type": "Excess Stock",
+                 "item": item_name,
+                 "message": f"Excess stock detected ({report.current_stock}). Consider running a promotion.",
+                 "priority": "Medium"
+             })
+             
+    return recommendations
+
+
 
 
 # =============================================================================
@@ -479,6 +623,11 @@ async def export_summary(
 async def startup_event():
     """Initialize services on startup."""
     print("🚀 FlavorFlow Craft API starting...")
+    
+    # Create database tables
+    print("📦 Creating database tables...")
+    Base.metadata.create_all(bind=engine)
+    
     print("📚 Documentation available at /docs")
 
 

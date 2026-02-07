@@ -57,6 +57,6 @@ scipy>=1.11.0  # For statistical calculations (safety stock, distributions)
 # streamlit>=1.25.0           # For Streamlit dashboard
 # umap-learn>=0.5.0           # For UMAP dimensionality reduction
 # hdbscan>=0.8.0              # For HDBSCAN clustering
-# sqlalchemy>=2.0.0           # For database support
+sqlalchemy>=2.0.0           # For database support
 # psycopg2-binary>=2.9.0      # For PostgreSQL
 

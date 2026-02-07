@@ -61,7 +61,69 @@ class MenuAnalysisService:
             Dictionary of dataset name to DataFrame
         """
         self._datasets = self.data_loader.load_all()
+        
+        # Merge with DB data
+        self.load_data_from_db()
+        
         return self._datasets
+    
+    def load_data_from_db(self):
+        """
+        Load data from SQLite database and merge with CSV data.
+        """
+        from src.database import SessionLocal
+        from src.models.db_models import MenuItem, OrderItem, Restaurant
+        
+        db = SessionLocal()
+        try:
+            # Load Menu Items from DB
+            db_items = db.query(MenuItem).all()
+            if db_items:
+                items_data = [{
+                    'item_id': item.id,
+                    'item_name': item.name,
+                    'price': item.price,
+                    'category': item.category,
+                    'description': item.description,
+                    'restaurant_id': item.restaurant_id
+                } for item in db_items]
+                
+                # Convert to DataFrame
+                df_items = pd.DataFrame(items_data)
+                
+                # If we have existing CSV data, we might need to reconcile or append
+                # For now, let's assume we want to analyze what's in the DB if present, 
+                # or mix it.
+                # A simple approach is to append or override 'most_ordered' or create a combined view.
+                
+                # Let's create a synthetic 'most_ordered' from DB orders/items
+                # This will allow the rest of the pipeline to work seamlessly
+                
+                # Fetch order items
+                db_order_items = db.query(OrderItem).all()
+                if db_order_items:
+                    order_data = [{
+                        'item_id': oi.menu_item_id,
+                        'order_count': oi.quantity,
+                        'revenue': oi.quantity * oi.price_at_time
+                    } for oi in db_order_items]
+                    
+                    df_orders = pd.DataFrame(order_data)
+                    
+                    # Group by item to get total orders/revenue
+                    item_performance = df_orders.groupby('item_id').agg({
+                        'order_count': 'sum',
+                        'revenue': 'sum'
+                    }).reset_index()
+                    
+                    # Merge with item details
+                    full_data = item_performance.merge(df_items, on='item_id', how='left')
+                    
+                    # Store in a special key or override
+                    self._results['db_item_performance'] = full_data
+            
+        finally:
+            db.close()
     
     def prepare_item_performance(self) -> pd.DataFrame:
         """
@@ -102,6 +164,29 @@ class MenuAnalysisService:
             'price': 'mean',
             'revenue': 'sum'
         }).reset_index()
+        
+        item_performance = menu_analysis.groupby(['item_id', 'item_name']).agg({
+            'order_count': 'sum',
+            'price': 'mean',
+            'revenue': 'sum'
+        }).reset_index()
+        
+        # Check if we have DB data and merge/append
+        if 'db_item_performance' in self._results:
+            db_perf = self._results['db_item_performance']
+            # Align columns
+            db_perf = db_perf[['item_id', 'item_name', 'order_count', 'price', 'revenue']]
+            
+            # For simplicity in this hybrid mode, we'll append. 
+            # In a real scenario, we'd handle ID collisions.
+            item_performance = pd.concat([item_performance, db_perf], ignore_index=True)
+            
+            # Re-aggregate in case of duplicates (though IDs should ideally be distinct)
+            item_performance = item_performance.groupby(['item_id', 'item_name']).agg({
+                'order_count': 'sum',
+                'price': 'mean',
+                'revenue': 'sum'
+            }).reset_index()
         
         return item_performance
     

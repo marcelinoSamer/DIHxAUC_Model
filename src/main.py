@@ -24,6 +24,13 @@ from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
+from src.database import engine, Base
+from src.models import db_models
+
+# Create database tables
+Base.metadata.create_all(bind=engine)
+
+
 import pandas as pd
 
 # Configure pandas display
