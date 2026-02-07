@@ -1,3 +1,4 @@
+/* ================= GLOBAL RESET ================= */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -11,6 +12,7 @@ body {
   min-height: 100vh;
 }
 
+/* ================= APP LAYOUT ================= */
 .app {
   min-height: 100vh;
   display: flex;
@@ -23,6 +25,7 @@ body {
   padding: 3rem 2rem;
 }
 
+/* ================= HEADER ================= */
 .header {
   padding: 3rem;
   border-radius: 24px;
@@ -33,6 +36,7 @@ body {
   );
   backdrop-filter: blur(14px);
   text-align: center;
+  margin-bottom: 3rem;
   border: 1px solid rgba(255,255,255,0.08);
 }
 
@@ -48,10 +52,13 @@ body {
   margin-top: 0.75rem;
   color: #cbd5f5;
 }
+
+/* ================= DASHBOARD ================= */
 .dashboard-grid {
   display: grid;
   grid-template-columns: 420px 1fr;
   gap: 2.5rem;
+  padding-left: 1.5rem;
 }
 
 .left-stack {
@@ -60,13 +67,17 @@ body {
   gap: 2rem;
 }
 
+/* ================= CARDS ================= */
 .card {
   padding: 2.5rem;
   border-radius: 20px;
   background: rgba(255,255,255,0.06);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 20px 50px rgba(0,0,0,0.45);
 }
+
+/* ================= BUTTONS ================= */
 .button-grid {
   display: grid;
   gap: 1rem;
@@ -74,17 +85,28 @@ body {
 }
 
 .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
   padding: 1rem;
   border-radius: 14px;
   font-weight: 600;
   border: none;
   cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-primary { background: #6366f1; color: white; }
 .btn-success { background: #22c55e; color: #022c22; }
 .btn-info { background: #38bdf8; color: #020617; }
 
+/* ================= STATUS ================= */
 .status {
   margin-top: 1.5rem;
   padding: 1rem;
@@ -93,6 +115,8 @@ body {
   background: rgba(34,197,94,0.15);
   color: #4ade80;
 }
+
+/* ================= UPLOAD ================= */
 .upload-box {
   margin-top: 1.5rem;
   border: 2px dashed rgba(255,255,255,0.25);
@@ -100,7 +124,21 @@ body {
   padding: 2.5rem;
   text-align: center;
   cursor: pointer;
+  transition: background 0.25s ease;
 }
+
+.upload-box:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.upload-box span {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+/* ================= CHATBOT ================= */
 .chatbot {
   display: flex;
   flex-direction: column;
@@ -130,4 +168,52 @@ body {
 
 .chat-bubble.assistant {
   background: rgba(255,255,255,0.15);
+}
+
+.chat-input {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: none;
+}
+
+/* ================= STATS ================= */
+.results-section {
+  margin-top: 3rem;
+  padding-left: 1.5rem;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.75rem;
+  margin-top: 2rem;
+}
+
+.stat-card {
+  padding: 2.25rem;
+  border-radius: 18px;
+  text-align: center;
+  color: white;
+}
+
+.stat-stars { background: linear-gradient(135deg, #22c55e, #16a34a); }
+.stat-plowhorses { background: linear-gradient(135deg, #f97316, #ea580c); }
+.stat-puzzles { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
+
+.stat-value {
+  font-size: 3rem;
+  font-weight: 800;
+}
+
+/* ================= FOOTER ================= */
+.footer {
+  margin-top: 4rem;
+  text-align: center;
+  color: #94a3b8;
 }
