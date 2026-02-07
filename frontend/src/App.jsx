@@ -1,3 +1,4 @@
+import { Upload, Play, Package } from 'lucide-react';
 import './App.css';
 
 function App() {
@@ -14,6 +15,20 @@ function App() {
                     <div className="left-stack">
                         <div className="card">
                             <h2>Control Panel</h2>
+
+                            <div className="button-grid">
+                                <button className="btn btn-primary">
+                                    <Upload size={18} /> Initialize System
+                                </button>
+                                <button className="btn btn-success">
+                                    <Play size={18} /> Run Analysis
+                                </button>
+                                <button className="btn btn-info">
+                                    <Package size={18} /> Get Menu Items
+                                </button>
+                            </div>
+
+                            <div className="status success">Ready to start</div>
                         </div>
                     </div>
 
