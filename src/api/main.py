@@ -79,6 +79,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register chat router
+from .chat import router as chat_router
+app.include_router(chat_router)
+
 # Global service instance (initialized on startup)
 _analysis_service = None
 
@@ -127,6 +131,7 @@ async def initialize_service(data_dir: str = Query(default="data/")):
     
     This endpoint must be called before running any analysis.
     It loads all required data files and prepares the ML models.
+    Also auto-populates the chat service context with dataset summaries.
     
     Args:
         data_dir: Path to the data directory
@@ -142,10 +147,18 @@ async def initialize_service(data_dir: str = Query(default="data/")):
         _analysis_service = MenuAnalysisService(data_dir=Path(data_dir))
         _analysis_service.load_data()
         
+        # Auto-load dataset context into the chat service
+        from .chat import get_chat_service
+        chat_svc = get_chat_service()
+        chat_svc.load_analysis_context(
+            datasets=_analysis_service._datasets,
+        )
+        
         return {
             "status": "initialized",
-            "message": "Analysis service ready",
+            "message": "Analysis service ready. Chat context loaded.",
             "data_loaded": True,
+            "chat_context_loaded": True,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
@@ -185,7 +198,7 @@ async def run_analysis(
         # Format response
         summary = service.get_executive_summary()
         
-        return AnalysisResponse(
+        response = AnalysisResponse(
             status="success",
             timestamp=datetime.now(),
             data_overview=DataOverview(
@@ -222,6 +235,19 @@ async def run_analysis(
             ],
             executive_summary=summary.get('summary_text', '')
         )
+
+        # Side-effect: feed BCG results into chat context (best-effort)
+        try:
+            from .chat import get_chat_service
+            chat_svc = get_chat_service()
+            chat_svc.load_analysis_context(
+                bcg_results={"executive_summary": summary},
+                datasets=service._datasets,
+            )
+        except Exception:
+            pass
+
+        return response
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -477,15 +503,79 @@ async def export_summary(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup."""
+    """Initialize services on startup — auto-configure LLM & load data context."""
+    global _analysis_service
     print("🚀 FlavorFlow Craft API starting...")
     print("📚 Documentation available at /docs")
+    print("💬 Chat endpoints available at /chat/*")
+
+    # ── 1. Auto-configure the chat service with the .env API key ─────────
+    from .chat import get_chat_service, set_chat_service
+    from src.services.chat_service import ChatService
+
+    chat_svc = ChatService()  # reads LLM_API_KEY from .env automatically
+    set_chat_service(chat_svc)
+
+    if chat_svc.is_configured:
+        print(f"✅ LLM configured: {chat_svc.provider} / {chat_svc.model}")
+    else:
+        print("⚠️  LLM_API_KEY not found in .env — chatbot will not work")
+
+    # ── 2. Load data & run analyses in background so server starts fast ──
+    import asyncio
+
+    async def _load_data_context():
+        global _analysis_service
+        import time
+        try:
+            from src.services.menu_analysis_service import MenuAnalysisService
+            from src.services.inventory_analysis_service import InventoryAnalysisService
+
+            data_dir = Path("data/")
+
+            # Menu analysis (BCG, pricing, clustering)
+            print("📊 Loading menu analysis data...")
+            menu_svc = MenuAnalysisService(data_dir=data_dir)
+            menu_results = menu_svc.run_full_analysis()
+            menu_summary = menu_svc.get_executive_summary()
+            _analysis_service = menu_svc
+            print("   ✅ Menu analysis complete")
+
+            # Inventory analysis (demand forecast, stock alerts)
+            print("📦 Loading inventory analysis data...")
+            inv_svc = InventoryAnalysisService(data_dir=data_dir)
+            inv_results = inv_svc.run_full_analysis(verbose=False)
+            print("   ✅ Inventory analysis complete")
+
+            # Feed everything into the chat context
+            chat_svc.load_analysis_context(
+                inventory_results=inv_results,
+                bcg_results={"executive_summary": menu_summary, **menu_results},
+                datasets=menu_svc._datasets,
+            )
+            print("🧠 Chat context loaded with full ML analysis data")
+
+        except Exception as e:
+            print(f"⚠️  Data auto-load failed (chat will work without context): {e}")
+            import traceback
+            traceback.print_exc()
+
+    # Run in a background thread so the server is responsive immediately
+    asyncio.get_event_loop().run_in_executor(None, lambda: asyncio.run(_load_data_context()))
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
     print("👋 FlavorFlow Craft API shutting down...")
+    # Close the LLM HTTP client
+    from .chat import get_chat_service
+    try:
+        svc = get_chat_service()
+        import asyncio
+        asyncio.ensure_future(svc.close())
+    except Exception:
+        pass
 
 
 # =============================================================================

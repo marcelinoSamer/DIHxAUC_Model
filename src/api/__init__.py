@@ -11,6 +11,7 @@ Modules:
 """
 
 from .main import app, get_analysis_service
+from .chat import router as chat_router, get_chat_service, set_chat_service
 from .schemas import (
     MenuItemResponse,
     RecommendationResponse,
@@ -23,10 +24,13 @@ from .schemas import (
 __all__ = [
     'app',
     'get_analysis_service',
+    'chat_router',
+    'get_chat_service',
+    'set_chat_service',
     'MenuItemResponse',
     'RecommendationResponse',
     'PricingSuggestion',
     'AnalysisRequest',
     'AnalysisResponse',
-    'HealthResponse'
+    'HealthResponse',
 ]

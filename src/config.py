@@ -122,3 +122,25 @@ PANDAS_DISPLAY_WIDTH = 1000
 
 # Number of items to show in top/bottom lists
 TOP_N_ITEMS = 10
+
+# =============================================================================
+# LLM / CHATBOT SETTINGS
+# =============================================================================
+
+# Default LLM provider: "groq" (free), "gemini", or "openai_compatible"
+LLM_PROVIDER = "groq"
+
+# Model defaults per provider (overridden if user supplies a model)
+LLM_MODELS = {
+    "groq": "llama-3.3-70b-versatile",
+    "gemini": "gemini-2.0-flash",
+    "openai_compatible": "gpt-3.5-turbo",
+}
+
+# Generation parameters
+LLM_TEMPERATURE = 0.4
+LLM_MAX_TOKENS = 2048
+
+# Conversation memory
+CHAT_MAX_HISTORY = 50         # messages per session (including system)
+CHAT_SESSION_TTL = 3600 * 4   # 4 hours
