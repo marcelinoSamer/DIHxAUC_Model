@@ -3,7 +3,7 @@ import {
   PieChart, Pie, Cell, Legend, AreaChart, Area,
 } from "recharts";
 import { TrendingUp, ShoppingCart, Store, UtensilsCrossed, AlertTriangle, Package, Users, Clock } from "lucide-react";
-import { executiveSummary, hourlyPatterns, featureImportance, bcgChartData, chartImages } from "../data/dashboardData";
+import { executiveSummary, hourlyPatterns, featureImportance, bcgChartData, chartImages } from "../data/dashboardData.js";
 
 const formatNum = (n) => {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
