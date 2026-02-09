@@ -422,142 +422,238 @@ def get_weekly_recommendations(db: Session = Depends(get_db)):
         item = db.query(MenuItem).filter(MenuItem.id == report.item_id).first()
         price = item.price if item and item.price else 15.0 # Default fallback
         items_for_prediction.append({'id': report.item_id, 'price': price})
-    
-    # Predict demand if service is available
-    predicted_demand = {}
-    if _analysis_service is not None:
-        try:
-            predicted_demand = _analysis_service.predict_demand_for_items(items_for_prediction)
-        except Exception as e:
-            print(f"Prediction error: {e}")
 
-    low_stock_count = 0
-    excess_stock_count = 0
-    
-    for report in unique_reports:
-        item_name = get_item_name(report.item_id)
-        current_stock = report.current_stock
-        reorder_point = report.reorder_point
+    has_db_records = len(unique_reports) > 0
+
+    if has_db_records:
+        # ── Path A: Use uploaded DB records ──────────────────────────────
+        # Predict demand if service is available
+        predicted_demand = {}
+        if _analysis_service is not None:
+            try:
+                predicted_demand = _analysis_service.predict_demand_for_items(items_for_prediction)
+            except Exception as e:
+                print(f"Prediction error: {e}")
+
+        low_stock_count = 0
+        excess_stock_count = 0
         
-        # ML-Enhanced Logic
-        daily_demand = predicted_demand.get(report.item_id, 0)
-        days_until_stockout = 999
-        if daily_demand > 0:
-            days_until_stockout = current_stock / daily_demand
+        for report in unique_reports:
+            item_name = get_item_name(report.item_id)
+            current_stock = report.current_stock
+            reorder_point = report.reorder_point
             
-        # Logic 1: Predicted to run out soon (ML)
-        if daily_demand > 0 and days_until_stockout < 7: # Less than week of stock
-            low_stock_count += 1
-            if low_stock_count <= 5:
-                # Calculate required stock for 14 days
-                target_stock = daily_demand * 14
-                order_amt = int(target_stock - current_stock)
+            # ML-Enhanced Logic
+            daily_demand = predicted_demand.get(report.item_id, 0)
+            days_until_stockout = 999
+            if daily_demand > 0:
+                days_until_stockout = current_stock / daily_demand
                 
-                recommendations.append({
-                    "type": "📉 High Demand Alert (ML)",
-                    "item": item_name,
-                    "message": f"Predicted to run out in {int(days_until_stockout)} days based on demand trends. Order {order_amt} units soon.",
-                    "priority": "High"
-                })
+            # Logic 1: Predicted to run out soon (ML)
+            if daily_demand > 0 and days_until_stockout < 7: # Less than week of stock
+                low_stock_count += 1
+                if low_stock_count <= 5:
+                    # Calculate required stock for 14 days
+                    target_stock = daily_demand * 14
+                    order_amt = int(target_stock - current_stock)
+                    
+                    recommendations.append({
+                        "type": "📉 High Demand Alert (ML)",
+                        "item": item_name,
+                        "message": f"Predicted to run out in {int(days_until_stockout)} days based on demand trends. Order {order_amt} units soon.",
+                        "priority": "High"
+                    })
+            
+            # Logic 2: Traditional Low Stock (Fallback/Safety)
+            elif current_stock < reorder_point:
+                low_stock_count += 1
+                if low_stock_count <= 5:
+                    recommendations.append({
+                        "type": "🔴 Restock Alert",
+                        "item": item_name,
+                        "message": f"Stock critically low ({int(current_stock)}). Below reorder point ({int(reorder_point)}).",
+                        "priority": "High"
+                    })
+                    
+            # Logic 3: Excess Stock (ML adjusted)
+            elif current_stock > reorder_point * 3:
+                # Only flag if demand is also low
+                if daily_demand > 0 and (current_stock / daily_demand) > 60: # > 2 months supply
+                    excess_stock_count += 1
+                    if excess_stock_count <= 2:
+                        recommendations.append({
+                            "type": "📦 Excess Stock (Slow Moving)",
+                            "item": item_name,
+                            "message": f"High inventory ({int(current_stock)}) with low predicted demand. >60 days supply. Run a promotion.",
+                            "priority": "Medium"
+                        })
+                elif daily_demand == 0: # No demand prediction
+                     excess_stock_count += 1
+                     if excess_stock_count <= 2:
+                        recommendations.append({
+                            "type": "📦 Excess Stock",
+                            "item": item_name,
+                            "message": f"Overstocked ({int(current_stock)} units). Consider running a promotion.",
+                            "priority": "Medium"
+                        })
         
-        # Logic 2: Traditional Low Stock (Fallback/Safety)
-        elif current_stock < reorder_point:
-            low_stock_count += 1
-            if low_stock_count <= 5:
+        # 2. Add summary recommendation if multiple issues
+        if low_stock_count > 3:
+            recommendations.append({
+                "type": "⚠️ Inventory Alert",
+                "item": "Multiple Items",
+                "message": f"{low_stock_count} items are below reorder point. Review inventory dashboard for full list.",
+                "priority": "High"
+            })
+
+        # 3a. ML-based recommendations (Database Items)
+        if _analysis_service is not None:
+            try:
+                 classifications = _analysis_service.classify_database_items(items_for_prediction)
+                 
+                 stars = [item_id for item_id, cat in classifications.items() if "Star" in cat]
+                 dogs = [item_id for item_id, cat in classifications.items() if "Dog" in cat]
+                 puzzles = [item_id for item_id, cat in classifications.items() if "Puzzle" in cat]
+                 plowhorses = [item_id for item_id, cat in classifications.items() if "Plowhorse" in cat]
+                 
+                 if stars:
+                     item_names_list = [get_item_name(i) for i in stars[:3]]
+                     names_str = ", ".join(item_names_list)
+                     if len(stars) > 3:
+                         names_str += f" and {len(stars)-3} others"
+                     recommendations.append({
+                         "type": "⭐ Star Performers (ML)",
+                         "item": f"{len(stars)} Inventory Items",
+                         "message": f"Top performers identified in your inventory: {names_str}. Promote them!",
+                         "priority": "Low"
+                     })
+                     
+                 if dogs:
+                     item_names_list = [get_item_name(i) for i in dogs[:3]]
+                     names_str = ", ".join(item_names_list)
+                     if len(dogs) > 3:
+                         names_str += f" and {len(dogs)-3} others"
+                     recommendations.append({
+                         "type": "🐕 Menu Optimization (ML)",
+                         "item": f"{len(dogs)} Inventory Items",
+                         "message": f"Underperforming items identified: {names_str}. Consider removing or Bundle deals.",
+                         "priority": "Medium"
+                     })
+                     
+                 if puzzles:
+                     recommendations.append({
+                         "type": "💡 Growth Opportunity (ML)",
+                         "item": f"{len(puzzles)} Inventory Items",
+                         "message": f"Profitable but low volume items found. Increase visibility to boost sales.",
+                         "priority": "Medium"
+                     })
+
+                 if plowhorses:
+                     recommendations.append({
+                         "type": "💰 Cost Optimization (ML)",
+                         "item": f"{len(plowhorses)} Inventory Items",
+                         "message": f"High volume but low margin items found. Consider small price increase.",
+                         "priority": "Low"
+                     })
+                     
+            except Exception as e:
+                print(f"ML Recommendation Error: {e}")
+
+    else:
+        # ── Path B: No uploads yet — use pre-computed ML inventory analysis ─
+        global _inventory_results
+        if _inventory_results is not None:
+            import pandas as pd
+            alerts_df = _inventory_results.get('inventory', {}).get('alerts', pd.DataFrame())
+            if not alerts_df.empty:
+                critical = alerts_df[alerts_df['status'].str.contains('Critical', na=False)]
+                low_stock = alerts_df[alerts_df['status'].str.contains('Low', na=False)]
+                excess = alerts_df[alerts_df['status'].str.contains('Excess', na=False)]
+
+                # Top critical items
+                for _, row in critical.head(3).iterrows():
+                    name = row.get('item_name', f"Item {row['item_id']}")
+                    stock = int(row.get('current_stock', 0))
+                    days = row.get('days_of_stock', 0)
+                    recommendations.append({
+                        "type": "🔴 Critical Stock (ML Analysis)",
+                        "item": str(name),
+                        "message": f"Only {stock} units left (~{int(days)} days of stock). Reorder immediately.",
+                        "priority": "High"
+                    })
+
+                # Top low-stock items
+                for _, row in low_stock.head(2).iterrows():
+                    name = row.get('item_name', f"Item {row['item_id']}")
+                    stock = int(row.get('current_stock', 0))
+                    rp = int(row.get('reorder_point', 0))
+                    recommendations.append({
+                        "type": "🟠 Low Stock (ML Analysis)",
+                        "item": str(name),
+                        "message": f"Stock at {stock} units, approaching reorder point ({rp}). Plan reorder soon.",
+                        "priority": "Medium"
+                    })
+
+                # Top excess items
+                for _, row in excess.head(2).iterrows():
+                    name = row.get('item_name', f"Item {row['item_id']}")
+                    stock = int(row.get('current_stock', 0))
+                    days = row.get('days_of_stock', 0)
+                    recommendations.append({
+                        "type": "📦 Excess Stock (ML Analysis)",
+                        "item": str(name),
+                        "message": f"Overstocked with {stock} units (~{int(days)} days supply). Consider a promotion.",
+                        "priority": "Medium"
+                    })
+
+                # Summary
                 recommendations.append({
-                    "type": "🔴 Restock Alert",
-                    "item": item_name,
-                    "message": f"Stock critically low ({int(current_stock)}). Below reorder point ({int(reorder_point)}).",
+                    "type": "⚠️ Inventory Overview",
+                    "item": "All Items",
+                    "message": f"{len(critical)} critical, {len(low_stock)} low stock, {len(excess)} excess items detected from ML demand analysis. Upload your CSV for live tracking.",
                     "priority": "High"
                 })
-                
-        # Logic 3: Excess Stock (ML adjusted)
-        elif current_stock > reorder_point * 3:
-            # Only flag if demand is also low
-            if daily_demand > 0 and (current_stock / daily_demand) > 60: # > 2 months supply
-                excess_stock_count += 1
-                if excess_stock_count <= 2:
-                    recommendations.append({
-                        "type": "📦 Excess Stock (Slow Moving)",
-                        "item": item_name,
-                        "message": f"High inventory ({int(current_stock)}) with low predicted demand. >60 days supply. Run a promotion.",
-                        "priority": "Medium"
-                    })
-            elif daily_demand == 0: # No demand prediction
-                 excess_stock_count += 1
-                 if excess_stock_count <= 2:
-                    recommendations.append({
-                        "type": "📦 Excess Stock",
-                        "item": item_name,
-                        "message": f"Overstocked ({int(current_stock)} units). Consider running a promotion.",
-                        "priority": "Medium"
-                    })
-    
-    # 2. Add summary recommendation if multiple issues
-    if low_stock_count > 3:
-        recommendations.append({
-            "type": "⚠️ Inventory Alert",
-            "item": "Multiple Items",
-            "message": f"{low_stock_count} items are below reorder point. Review inventory dashboard for full list.",
-            "priority": "High"
-        })
-    
-    # 3. ML-based recommendations (Database Items Only)
-    if _analysis_service is not None:
-        try:
-             # Classify database items using ML model (trained on dataset, applied to DB data)
-             classifications = _analysis_service.classify_database_items(items_for_prediction)
-             
-             # Group items by category (Star, Dog, etc.)
-             stars = [item_id for item_id, cat in classifications.items() if "Star" in cat]
-             dogs = [item_id for item_id, cat in classifications.items() if "Dog" in cat]
-             puzzles = [item_id for item_id, cat in classifications.items() if "Puzzle" in cat]
-             plowhorses = [item_id for item_id, cat in classifications.items() if "Plowhorse" in cat]
-             
-             if stars:
-                 item_names_list = [get_item_name(i) for i in stars[:3]]
-                 names_str = ", ".join(item_names_list)
-                 if len(stars) > 3:
-                     names_str += f" and {len(stars)-3} others"
-                     
-                 recommendations.append({
-                     "type": "⭐ Star Performers (ML)",
-                     "item": f"{len(stars)} Inventory Items",
-                     "message": f"Top performers identified in your inventory: {names_str}. Promote them!",
-                     "priority": "Low"
-                 })
-                 
-             if dogs:
-                 item_names_list = [get_item_name(i) for i in dogs[:3]]
-                 names_str = ", ".join(item_names_list)
-                 if len(dogs) > 3:
-                     names_str += f" and {len(dogs)-3} others"
-                     
-                 recommendations.append({
-                     "type": "🐕 Menu Optimization (ML)",
-                     "item": f"{len(dogs)} Inventory Items",
-                     "message": f"Underperforming items identified: {names_str}. Consider removing or Bundle deals.",
-                     "priority": "Medium"
-                 })
-                 
-             if puzzles:
-                 recommendations.append({
-                     "type": "💡 Growth Opportunity (ML)",
-                     "item": f"{len(puzzles)} Inventory Items",
-                     "message": f"Profitable but low volume items found. Increase visibility to boost sales.",
-                     "priority": "Medium"
-                 })
 
-             if plowhorses:
-                 recommendations.append({
-                     "type": "💰 Cost Optimization (ML)",
-                     "item": f"{len(plowhorses)} Inventory Items",
-                     "message": f"High volume but low margin items found. Consider small price increase.",
-                     "priority": "Low"
-                 })
-                 
-        except Exception as e:
-            print(f"ML Recommendation Error: {e}")
+        # 3b. ML-based recommendations from full analysis (no DB items)
+        if _analysis_service is not None:
+            try:
+                summary = _analysis_service.get_executive_summary()
+                bcg = summary.get('bcg_breakdown', {})
+                stars_count = bcg.get('stars', 0)
+                dogs_count = bcg.get('dogs', 0)
+                puzzles_count = bcg.get('puzzles', 0)
+                plowhorses_count = bcg.get('plowhorses', 0)
+
+                if stars_count:
+                    recommendations.append({
+                        "type": "⭐ Star Performers (ML)",
+                        "item": f"{stars_count} Menu Items",
+                        "message": "High-profit, high-popularity items identified. Promote these on your menu to maximize revenue.",
+                        "priority": "Low"
+                    })
+                if dogs_count:
+                    recommendations.append({
+                        "type": "🐕 Menu Optimization (ML)",
+                        "item": f"{dogs_count} Menu Items",
+                        "message": "Low-profit, low-popularity items found. Consider removing or bundling with star items.",
+                        "priority": "Medium"
+                    })
+                if puzzles_count:
+                    recommendations.append({
+                        "type": "💡 Growth Opportunity (ML)",
+                        "item": f"{puzzles_count} Menu Items",
+                        "message": "Profitable but underordered items. Increase visibility with featured placement or deals.",
+                        "priority": "Medium"
+                    })
+                if plowhorses_count:
+                    recommendations.append({
+                        "type": "💰 Cost Optimization (ML)",
+                        "item": f"{plowhorses_count} Menu Items",
+                        "message": "Popular but low-margin items. A small price increase could significantly boost profit.",
+                        "priority": "Low"
+                    })
+            except Exception as e:
+                print(f"ML Recommendation Error (initial): {e}")
                 
 
     
@@ -1248,7 +1344,11 @@ async def startup_event():
             menu_summary = menu_svc.get_executive_summary()
             print("   ✅ Menu analysis complete")
 
-            # Inventory analysis (demand forecast, stock alerts)
+            # Make dashboard + weekly suggestions available immediately
+            _analysis_service = menu_svc
+            print("   🟢 Dashboard is now live (inventory still loading…)")
+
+            # Inventory analysis (demand forecast, stock alerts) — runs second
             print("📦 Loading inventory analysis data...")
             inv_svc = InventoryAnalysisService(data_dir=data_dir)
             inv_results = inv_svc.run_full_analysis(verbose=False)
@@ -1263,9 +1363,6 @@ async def startup_event():
                 print(f"   ✅ Inventory analysis complete: {n_crit} critical, {n_low} low, {n_exc} excess")
             else:
                 print("   ✅ Inventory analysis complete (no alerts)")
-
-            # Set _analysis_service LAST so dashboard doesn't serve partial data
-            _analysis_service = menu_svc
 
             # Feed everything into the chat context
             chat_svc.load_analysis_context(
