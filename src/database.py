@@ -3,10 +3,12 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import os
 
 # Database URL — defaults to local SQLite, overridable via env var
-SQLALCHEMY_DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "sqlite:///./restaurant_data.db",
-)
+# On Vercel the filesystem is read-only except /tmp
+_default_db = "sqlite:///./restaurant_data.db"
+if os.environ.get("VERCEL"):
+    _default_db = "sqlite:////tmp/restaurant_data.db"
+
+SQLALCHEMY_DATABASE_URL = os.environ.get("DATABASE_URL", _default_db)
 
 # Create engine
 connect_args = {"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}

@@ -1,4 +1,6 @@
 *.csv
+data/
+.env
 venv/
 .vscode/
 __pycache__/
@@ -7,7 +9,6 @@ __pycache__/
 .env
 .ipynb_checkpoints
 logs/
-data/
 !frontend/src/data/
 outputs/
 .idea/
@@ -15,4 +16,3 @@ outputs/
 *.sqlite3
 *.db
 restaurant_data.db
-.env

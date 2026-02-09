@@ -169,10 +169,11 @@ class DataContextBuilder:
         if params:
             lines.append("\n### Inventory Optimization Parameters")
             lines.append(f"- Lead time: {params.get('lead_time_days', '?')} days")
-            lines.append(
-                f"- Service level target: "
-                f"{params.get('service_level', 0) * 100:.0f}%"
-            )
+            try:
+                sl = float(params.get('service_level', 0))
+                lines.append(f"- Service level target: {sl * 100:.0f}%")
+            except (ValueError, TypeError):
+                lines.append(f"- Service level target: {params.get('service_level', '?')}")
             lines.append(
                 f"- Total items analyzed: "
                 f"{opt_summary.get('total_items_analyzed', '?')}"
@@ -214,7 +215,11 @@ class DataContextBuilder:
 
         # top recommendations
         recs = results.get("recommendations", [])
-        if recs:
+        recs_present = (
+            (isinstance(recs, pd.DataFrame) and not recs.empty)
+            or (isinstance(recs, list) and len(recs) > 0)
+        )
+        if recs_present:
             lines.append("\n### Strategic Recommendations")
             if isinstance(recs, pd.DataFrame):
                 for _, row in recs.head(8).iterrows():

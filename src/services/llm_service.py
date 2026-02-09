@@ -27,8 +27,12 @@ from enum import Enum
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Load environment variables from .env file
+# Load environment variables from .env file (search project root)
+_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(_env_path)
+# Also try CWD-relative .env as fallback
 load_dotenv()
 
 logger = logging.getLogger("flavorflow.llm")

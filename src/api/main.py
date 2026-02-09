@@ -650,9 +650,12 @@ async def startup_event():
     global _analysis_service
     print("🚀 FlavorFlow Craft API starting...")
     
-    # Create database tables
-    print("📦 Creating database tables...")
-    Base.metadata.create_all(bind=engine)
+    # Create database tables (best-effort: may fail on read-only FS)
+    try:
+        print("📦 Creating database tables...")
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        print(f"⚠️  Database table creation skipped: {e}")
     
     print("📚 Documentation available at /docs")
     print("💬 Chat endpoints available at /chat/*")
@@ -667,9 +670,12 @@ async def startup_event():
     if chat_svc.is_configured:
         print(f"✅ LLM configured: {chat_svc.provider} / {chat_svc.model}")
     else:
-        print("⚠️  LLM_API_KEY not found in .env — chatbot will not work")
+        print("⚠️  LLM_API_KEY not found — chatbot will not work until configured")
 
-    # ── 2. Load data & run analyses in background so server starts fast ──
+    # ── 2. Load data in background so /health responds immediately ───────
+    # Render's health check will hit /health within seconds of boot.
+    # If we block here downloading 92 MB + processing 2M rows, Render
+    # will think the service is dead and restart it in a loop.
     import threading
 
     def _load_data_context():
@@ -677,8 +683,24 @@ async def startup_event():
         try:
             from src.services.menu_analysis_service import MenuAnalysisService
             from src.services.inventory_analysis_service import InventoryAnalysisService
+            from src.utils.data_downloader import download_data, data_is_present, _data_dir
 
-            data_dir = Path("data/")
+            # Auto-download dataset from GitHub Releases if not present locally
+            if not data_is_present():
+                print("📥 Data not found — downloading from GitHub Releases …")
+                try:
+                    download_data()
+                except Exception as dl_err:
+                    print(f"⚠️  Data download failed: {dl_err}")
+                    print("   Server running without ML context.")
+                    return
+
+            # Resolve the data dir via the downloader (canonical path)
+            data_dir = _data_dir()
+
+            if not data_dir.exists() or not any(data_dir.glob("*.csv")):
+                print("⚠️  No CSV files found — skipping ML pipeline")
+                return
 
             # Menu analysis (BCG, pricing, clustering)
             print("📊 Loading menu analysis data...")
@@ -707,8 +729,8 @@ async def startup_event():
             import traceback
             traceback.print_exc()
 
-    # Run in a background thread so the server is responsive immediately
     threading.Thread(target=_load_data_context, daemon=True).start()
+    print("🔄 Data loading started in background — server is ready for requests")
 
 
 @app.on_event("shutdown")

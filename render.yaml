@@ -1,0 +1,19 @@
+# render.yaml — Render Blueprint for FlavorFlow Craft Backend
+# Docs: https://docs.render.com/blueprint-spec
+#
+# Deploy: connect this repo on https://dashboard.render.com
+# and Render will auto-detect this file.
+
+services:
+  - type: web
+    name: flavorflow-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: LLM_API_KEY
+        sync: false            # set manually in dashboard (secret)
+    healthCheckPath: /health
+    plan: free                 # free tier: 512 MB RAM, sleeps after 15 min
