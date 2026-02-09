@@ -63,7 +63,14 @@ class ChatService:
         )
         self._llm = LLMService(self._llm_config)
         self._context_builder = DataContextBuilder()
-        self._conversation_mgr = ConversationManager(system_prompt="")
+        # Start with the base persona so the LLM knows its role
+        # even before the full data context finishes loading.
+        self._conversation_mgr = ConversationManager(
+            system_prompt=self._context_builder._PERSONA
+            + "\n\nNote: Full data context is still loading. "
+            "You can answer general questions but detailed analytics "
+            "will be available shortly."
+        )
 
         self._is_context_loaded = False
 
@@ -175,6 +182,15 @@ class ChatService:
 
         system_prompt = self._context_builder.build_system_prompt()
         self._conversation_mgr.system_prompt = system_prompt
+
+        # Propagate the new prompt to all existing sessions so
+        # sessions created before data finished loading get the
+        # full context on their next message.
+        for sid in [s["session_id"] for s in self._conversation_mgr.list_sessions()]:
+            self._conversation_mgr.update_system_prompt_for_session(
+                sid, system_prompt
+            )
+
         self._is_context_loaded = True
 
         logger.info(
