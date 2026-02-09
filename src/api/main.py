@@ -570,22 +570,55 @@ def get_dashboard_data():
             
             if time_col:
                 try:
-                    orders_df = orders_df.copy()
-                    orders_df['hour'] = pd.to_datetime(orders_df[time_col]).dt.hour
-                    hourly_agg = orders_df.groupby('hour').size().reset_index(name='orders')
+                    orders_tmp = orders_df.copy()
+                    orders_tmp['hour'] = pd.to_datetime(orders_tmp[time_col], unit='s', errors='coerce').dt.hour
+                    
+                    # Aggregate orders and revenue per hour from real data
+                    agg_dict = {'hour': 'count'}  # count of orders
+                    if 'total_amount' in orders_tmp.columns:
+                        orders_tmp['total_amount_num'] = pd.to_numeric(
+                            orders_tmp['total_amount'], errors='coerce'
+                        )
+                        agg_dict['total_amount_num'] = 'sum'
+                    
+                    hourly_agg = orders_tmp.groupby('hour').agg(**{
+                        'orders': ('hour', 'count'),
+                    }).reset_index()
+                    
+                    # Also get revenue per hour
+                    if 'total_amount_num' in orders_tmp.columns:
+                        revenue_agg = orders_tmp.groupby('hour')['total_amount_num'].sum()
+                    else:
+                        revenue_agg = pd.Series(dtype=float)
+                    
+                    # Get quantity per hour from order_items if available
+                    oi_df = datasets.get('fct_order_items', pd.DataFrame())
+                    qty_per_hour = pd.Series(dtype=float)
+                    if not oi_df.empty and 'order_id' in oi_df.columns and 'quantity' in oi_df.columns:
+                        try:
+                            # Map order_id to hour, then aggregate
+                            order_hours = orders_tmp[['id', 'hour']].dropna(subset=['hour'])
+                            oi_with_hour = oi_df.merge(
+                                order_hours, left_on='order_id', right_on='id', how='inner'
+                            )
+                            qty_per_hour = oi_with_hour.groupby('hour')['quantity'].sum()
+                        except Exception:
+                            pass
                     
                     hour_labels = ["12am", "1am", "2am", "3am", "4am", "5am", "6am", "7am", 
                                    "8am", "9am", "10am", "11am", "12pm", "1pm", "2pm", "3pm",
                                    "4pm", "5pm", "6pm", "7pm", "8pm", "9pm", "10pm", "11pm"]
                     
                     for _, row in hourly_agg.iterrows():
-                        h = int(row['hour'])
+                        h = int(row['hour']) if not pd.isna(row['hour']) else -1
                         if 0 <= h < 24:
+                            rev = to_python(int(revenue_agg.get(h, 0))) if not revenue_agg.empty else 0
+                            qty = to_python(int(qty_per_hour.get(h, 0))) if not qty_per_hour.empty else 0
                             hourly_patterns.append({
                                 "hour": hour_labels[h],
                                 "orders": to_python(row['orders']),
-                                "quantity": to_python(int(row['orders'] * 2.3)),
-                                "revenue": to_python(int(row['orders'] * 445))
+                                "quantity": qty,
+                                "revenue": rev
                             })
                 except Exception:
                     pass
@@ -611,28 +644,109 @@ def get_dashboard_data():
                 'modelRMSE': to_python(metrics.get('rmse', 6.77))
             }
         
-        # Build executive summary for frontend
+        # Build executive summary for frontend — all metrics from REAL data
         data_overview = summary.get('data_overview', {})
         total_orders = to_python(data_overview.get('total_orders', 0))
+        total_order_items = to_python(data_overview.get('total_order_items', 0))
+        
+        # Compute real behavioral metrics from datasets
+        datasets = _analysis_service._datasets
+        orders_df = datasets.get('fct_orders', pd.DataFrame())
+        order_items_df = datasets.get('fct_order_items', pd.DataFrame())
+        
+        # Avg order value and median from actual order totals
+        avg_order_value = 0.0
+        median_order_value = 0.0
+        if not orders_df.empty and 'total_amount' in orders_df.columns:
+            amounts = pd.to_numeric(orders_df['total_amount'], errors='coerce').dropna()
+            if not amounts.empty:
+                avg_order_value = round(float(amounts.mean()), 2)
+                median_order_value = round(float(amounts.median()), 2)
+        
+        # Avg items per order and avg quantity from actual order items
+        avg_items_per_order = 0.0
+        avg_quantity_per_order = 0.0
+        if not order_items_df.empty and 'order_id' in order_items_df.columns:
+            items_per_order = order_items_df.groupby('order_id').size()
+            avg_items_per_order = round(float(items_per_order.mean()), 2)
+            if 'quantity' in order_items_df.columns:
+                qty_per_order = order_items_df.groupby('order_id')['quantity'].sum()
+                avg_quantity_per_order = round(float(qty_per_order.mean()), 2)
+        
+        # Avg orders per day from actual date range
+        avg_orders_per_day = 0.0
+        if not orders_df.empty:
+            time_col = None
+            for col in ['order_time', 'created_at', 'created', 'timestamp']:
+                if col in orders_df.columns:
+                    time_col = col
+                    break
+            if time_col:
+                try:
+                    ts = pd.to_datetime(orders_df[time_col], unit='s', errors='coerce')
+                    ts = ts.dropna()
+                    if not ts.empty:
+                        date_range_days = max((ts.max() - ts.min()).days, 1)
+                        avg_orders_per_day = round(len(orders_df) / date_range_days, 1)
+                except Exception:
+                    pass
+        
+        # Peak hour/day/weekend from actual hourly patterns
+        peak_hour = 16
+        peak_hour_label = "16:00"
+        peak_day = "Friday"
+        weekend_pct = 0.0
+        if hourly_patterns:
+            max_pattern = max(hourly_patterns, key=lambda x: x.get('orders', 0))
+            peak_hour_label = max_pattern.get('hour', '16:00')
+        if not orders_df.empty:
+            time_col = None
+            for col in ['order_time', 'created_at', 'created', 'timestamp']:
+                if col in orders_df.columns:
+                    time_col = col
+                    break
+            if time_col:
+                try:
+                    ts = pd.to_datetime(orders_df[time_col], unit='s', errors='coerce').dropna()
+                    if not ts.empty:
+                        peak_hour = int(ts.dt.hour.mode().iloc[0])
+                        peak_hour_label = f"{peak_hour}:00"
+                        peak_day = ts.dt.day_name().mode().iloc[0]
+                        weekend_pct = round(
+                            ts.dt.dayofweek.isin([5, 6]).mean() * 100, 1
+                        )
+                except Exception:
+                    pass
+        
+        # Inventory alerts — from actual inventory analysis, not BCG dogs
+        critical_items = 0
+        low_stock_items = 0
+        excess_items = 0
+        if hasattr(_analysis_service, '_results'):
+            inv = _analysis_service._results.get('inventory_alerts', pd.DataFrame())
+            if isinstance(inv, pd.DataFrame) and not inv.empty and 'status' in inv.columns:
+                critical_items = int(inv['status'].str.contains('Critical', na=False).sum())
+                low_stock_items = int(inv['status'].str.contains('Low', na=False).sum())
+                excess_items = int(inv['status'].str.contains('Excess', na=False).sum())
         
         executive_summary = {
             'totalOrders': total_orders,
-            'totalOrderItems': int(total_orders * 1.7),
+            'totalOrderItems': total_order_items,
             'restaurants': to_python(data_overview.get('total_restaurants', 0)),
             'menuItems': to_python(data_overview.get('total_items', 0)),
-            'peakHour': 16,
-            'peakHourLabel': "16:00",
-            'peakDay': "Friday",
-            'weekendPct': 26.9,
-            'avgOrdersPerDay': round(total_orders / 1000, 1) if total_orders > 0 else 0,
-            'avgItemsPerOrder': 1.7,
-            'avgQuantityPerOrder': 2.3,
-            'avgOrderValue': 445.44,
-            'medianOrderValue': 80.0,
+            'peakHour': peak_hour,
+            'peakHourLabel': peak_hour_label,
+            'peakDay': peak_day,
+            'weekendPct': weekend_pct,
+            'avgOrdersPerDay': avg_orders_per_day,
+            'avgItemsPerOrder': avg_items_per_order,
+            'avgQuantityPerOrder': avg_quantity_per_order,
+            'avgOrderValue': avg_order_value,
+            'medianOrderValue': median_order_value,
             **model_metrics,
-            'criticalItems': to_python(bcg_data.get('dogs', 0)),
-            'lowStockItems': int(to_python(bcg_data.get('dogs', 0)) * 1.5),
-            'excessItems': int(to_python(bcg_data.get('puzzles', 0)) * 0.12),
+            'criticalItems': critical_items,
+            'lowStockItems': low_stock_items,
+            'excessItems': excess_items,
         }
         
         return {

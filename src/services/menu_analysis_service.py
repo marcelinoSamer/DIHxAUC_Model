@@ -548,11 +548,25 @@ class MenuAnalysisService:
         Returns:
             Dictionary with summary metrics and insights
         """
+        # Compute total_orders from actual orders table, NOT from most_ordered sum
+        fct_orders = self._datasets.get('fct_orders', pd.DataFrame())
+        fct_order_items = self._datasets.get('fct_order_items', pd.DataFrame())
+        
+        total_orders = len(fct_orders) if not fct_orders.empty else 0
+        total_order_items = len(fct_order_items) if not fct_order_items.empty else 0
+        
+        # Active restaurants = those that actually have orders
+        if not fct_orders.empty and 'place_id' in fct_orders.columns:
+            active_restaurants = int(fct_orders['place_id'].nunique())
+        else:
+            active_restaurants = len(self._datasets.get('dim_places', []))
+        
         summary = {
             'data_overview': {
                 'total_items': len(self._datasets.get('dim_items', [])),
-                'total_restaurants': len(self._datasets.get('dim_places', [])),
-                'total_orders': self._datasets.get('most_ordered', pd.DataFrame()).get('order_count', pd.Series()).sum(),
+                'total_restaurants': active_restaurants,
+                'total_orders': total_orders,
+                'total_order_items': total_order_items,
                 'total_campaigns': len(self._datasets.get('fct_campaigns', []))
             }
         }
