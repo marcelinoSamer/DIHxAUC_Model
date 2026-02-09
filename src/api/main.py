@@ -1354,6 +1354,14 @@ async def startup_event():
             _analysis_service = menu_svc
             print("   🟢 Dashboard is now live (inventory still loading…)")
 
+            # Feed menu analysis + raw datasets into chat context early
+            # so the chatbot can answer questions while inventory loads
+            chat_svc.load_analysis_context(
+                bcg_results={"executive_summary": menu_summary, **menu_results},
+                datasets=menu_svc._datasets,
+            )
+            print("🧠 Chat context loaded with menu + dataset summaries")
+
             # Inventory analysis (demand forecast, stock alerts) — runs second
             print("📦 Loading inventory analysis data...")
             inv_svc = InventoryAnalysisService(data_dir=data_dir)
@@ -1370,13 +1378,13 @@ async def startup_event():
             else:
                 print("   ✅ Inventory analysis complete (no alerts)")
 
-            # Feed everything into the chat context
+            # Feed everything into the chat context (now with inventory too)
             chat_svc.load_analysis_context(
                 inventory_results=inv_results,
                 bcg_results={"executive_summary": menu_summary, **menu_results},
                 datasets=menu_svc._datasets,
             )
-            print("🧠 Chat context loaded with full ML analysis data")
+            print("🧠 Chat context updated with inventory analysis data")
 
         except Exception as e:
             print(f"⚠️  Data auto-load failed (chat will work without context): {e}")

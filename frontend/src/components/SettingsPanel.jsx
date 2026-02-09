@@ -46,10 +46,7 @@ export default function SettingsPanel() {
               <span>Max Tokens</span>
               <span className="status-value">{config?.max_tokens || "—"}</span>
             </div>
-            <div className="status-row">
-              <span>API Key</span>
-              <span className="status-value">{config?.api_key || "—"}</span>
-            </div>
+          
             <div className="status-row">
               <span>Data Context Loaded</span>
               {config?.is_context_loaded ? (

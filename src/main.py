@@ -48,9 +48,9 @@ def print_banner():
     banner = """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                                                                              ║
-║   🍽️  FlavorFlow Craft - Menu Engineering Solution                           ║
+║   🍽️  FlavorFlow Craft - Menu Engineering Solution                            ║
 ║                                                                              ║
-║   Deloitte x AUC Hackathon 2024-2025                                        ║
+║   Deloitte x AUC Hackathon 2024-2025                                         ║
 ║   Empowering restaurants with data-driven menu optimization                  ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
