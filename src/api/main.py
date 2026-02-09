@@ -889,6 +889,12 @@ def get_dashboard_data():
                 critical_items = int(alerts_df['status'].str.contains('Critical', na=False).sum())
                 low_stock_items = int(alerts_df['status'].str.contains('Low', na=False).sum())
                 excess_items = int(alerts_df['status'].str.contains('Excess', na=False).sum())
+            else:
+                # alerts_df exists but is empty — log for debugging
+                print(f"⚠️  alerts_df is empty or missing 'status' column. Keys: {_inventory_results.keys()}, inventory keys: {_inventory_results.get('inventory', {}).keys()}")
+        else:
+            # Inventory analysis hasn't finished yet
+            print("ℹ️  Inventory results not yet loaded (analysis still running)")
         
         executive_summary = {
             'totalOrders': total_orders,
