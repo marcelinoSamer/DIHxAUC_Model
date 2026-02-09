@@ -384,7 +384,7 @@ async def run_analysis(
             from .chat import get_chat_service
             chat_svc = get_chat_service()
             chat_svc.load_analysis_context(
-                bcg_results={"executive_summary": summary},
+                bcg_results={"executive_summary": summary, **results},
                 datasets=service._datasets,
             )
         except Exception:
