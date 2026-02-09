@@ -92,8 +92,9 @@ app.add_middleware(
 from .chat import router as chat_router
 app.include_router(chat_router)
 
-# Global service instance (initialized on startup)
+# Global service instances (initialized on startup)
 _analysis_service = None
+_inventory_results = None
 
 
 def get_analysis_service():
@@ -718,16 +719,16 @@ def get_dashboard_data():
                 except Exception:
                     pass
         
-        # Inventory alerts — from actual inventory analysis, not BCG dogs
+        # Inventory alerts — from actual inventory analysis results
         critical_items = 0
         low_stock_items = 0
         excess_items = 0
-        if hasattr(_analysis_service, '_results'):
-            inv = _analysis_service._results.get('inventory_alerts', pd.DataFrame())
-            if isinstance(inv, pd.DataFrame) and not inv.empty and 'status' in inv.columns:
-                critical_items = int(inv['status'].str.contains('Critical', na=False).sum())
-                low_stock_items = int(inv['status'].str.contains('Low', na=False).sum())
-                excess_items = int(inv['status'].str.contains('Excess', na=False).sum())
+        if _inventory_results is not None:
+            alerts_df = _inventory_results.get('inventory', {}).get('alerts', pd.DataFrame())
+            if isinstance(alerts_df, pd.DataFrame) and not alerts_df.empty and 'status' in alerts_df.columns:
+                critical_items = int(alerts_df['status'].str.contains('Critical', na=False).sum())
+                low_stock_items = int(alerts_df['status'].str.contains('Low', na=False).sum())
+                excess_items = int(alerts_df['status'].str.contains('Excess', na=False).sum())
         
         executive_summary = {
             'totalOrders': total_orders,
@@ -1153,7 +1154,7 @@ async def startup_event():
     import threading
 
     def _load_data_context():
-        global _analysis_service
+        global _analysis_service, _inventory_results
         try:
             from src.services.menu_analysis_service import MenuAnalysisService
             from src.services.inventory_analysis_service import InventoryAnalysisService
@@ -1188,6 +1189,7 @@ async def startup_event():
             print("📦 Loading inventory analysis data...")
             inv_svc = InventoryAnalysisService(data_dir=data_dir)
             inv_results = inv_svc.run_full_analysis(verbose=False)
+            _inventory_results = inv_results
             print("   ✅ Inventory analysis complete")
 
             # Feed everything into the chat context
