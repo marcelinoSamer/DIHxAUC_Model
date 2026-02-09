@@ -292,6 +292,70 @@ async def ingest_inventory(file: UploadFile = File(...), db: Session = Depends(g
         db.add_all(reports)
         db.commit()
         
+        # ── Update in-memory inventory alerts so dashboard reflects upload ──
+        try:
+            global _inventory_results
+            
+            # Build an alerts DataFrame from the uploaded data
+            # Match the format that the dashboard expects
+            items_df = _analysis_service._datasets.get('dim_items', pd.DataFrame()) if _analysis_service else pd.DataFrame()
+            
+            # Create a mapping of item_id → item name
+            name_map = {}
+            if not items_df.empty and 'id' in items_df.columns and 'title' in items_df.columns:
+                name_map = dict(zip(items_df['id'], items_df['title']))
+            
+            alert_rows = []
+            for _, row in df.iterrows():
+                item_id = int(row['item_id'])
+                current_stock = float(row['current_stock'])
+                reorder_point = float(row.get('reorder_point', 0) or 0)
+                safety_stock = float(row.get('safety_stock', 0) or 0)
+                
+                # Determine status using same logic as InventoryOptimizer
+                if current_stock <= safety_stock:
+                    status = '🔴 Critical - Stockout Risk'
+                elif current_stock <= reorder_point:
+                    status = '🟠 Low - Reorder Soon'
+                elif reorder_point > 0 and current_stock > reorder_point * 3:
+                    status = '🔵 Excess - Overstock Risk'
+                else:
+                    status = '✅ OK'
+                
+                days_of_stock = round(current_stock / max(reorder_point * 0.1, 1), 1)
+                
+                alert_rows.append({
+                    'item_id': item_id,
+                    'item_name': name_map.get(item_id, f'Item {item_id}'),
+                    'current_stock': current_stock,
+                    'reorder_point': reorder_point,
+                    'safety_stock': safety_stock,
+                    'status': status,
+                    'days_of_stock': days_of_stock,
+                    'recommended_order_qty': max(0, reorder_point - current_stock),
+                })
+            
+            alerts_df = pd.DataFrame(alert_rows)
+            
+            # Merge with existing inventory results or create new
+            if _inventory_results is None:
+                _inventory_results = {}
+            
+            if 'inventory' not in _inventory_results:
+                _inventory_results['inventory'] = {}
+            
+            _inventory_results['inventory']['alerts'] = alerts_df
+            
+            n_critical = int(alerts_df['status'].str.contains('Critical', na=False).sum())
+            n_low = int(alerts_df['status'].str.contains('Low', na=False).sum())
+            n_excess = int(alerts_df['status'].str.contains('Excess', na=False).sum())
+            print(f"📊 Inventory alerts updated: {n_critical} critical, {n_low} low, {n_excess} excess")
+            
+        except Exception as alert_err:
+            print(f"⚠️  Failed to update in-memory alerts (dashboard may not reflect upload): {alert_err}")
+            import traceback
+            traceback.print_exc()
+        
         return {"status": "success", "items_processed": len(reports)}
         
     except HTTPException:
