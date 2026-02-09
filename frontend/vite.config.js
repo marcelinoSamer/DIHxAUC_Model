@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
         '/analyze': { target: apiUrl, changeOrigin: true },
         '/items': { target: apiUrl, changeOrigin: true },
         '/recommendations': { target: apiUrl, changeOrigin: true },
+        '/dashboard': { target: apiUrl, changeOrigin: true },
         '/pricing-suggestions': { target: apiUrl, changeOrigin: true },
         '/ask': { target: apiUrl, changeOrigin: true },
         '/export': { target: apiUrl, changeOrigin: true },

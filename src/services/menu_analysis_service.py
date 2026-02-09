@@ -9,7 +9,8 @@ coordinating data loading, classification, clustering, and reporting.
 """
 
 import pandas as pd
-from typing import Dict, Optional, Tuple
+import numpy as np
+from typing import Dict, Optional, Tuple, List
 from pathlib import Path
 
 from src.models.menu_classifier import MenuClassifier
@@ -208,6 +209,16 @@ class MenuAnalysisService:
         
         classified = self.classifier.fit_transform(item_performance)
         
+        # Save the trained classifier
+        try:
+            model_dir = Path("models")
+            model_dir.mkdir(exist_ok=True)
+            classifier_path = model_dir / "bcg_classifier.joblib"
+            self.classifier.save(classifier_path)
+            print(f"   💾 BCG classifier saved to {classifier_path}")
+        except Exception as e:
+            print(f"   ⚠️ Failed to save BCG classifier: {e}")
+
         metrics = {
             'popularity_threshold': self.classifier.thresholds.popularity,
             'price_threshold': self.classifier.thresholds.profitability,
@@ -274,19 +285,149 @@ class MenuAnalysisService:
         X, y = self.predictor.prepare_features(dim_menu_items)
         self.predictor.fit(X, y)
         
+        # Save the trained model for later use
+        model_dir = Path("models")
+        model_dir.mkdir(exist_ok=True)
+        model_path = model_dir / "demand_model.joblib"
+        self.predictor.save(model_path)
+        print(f"   💾 Demand model saved to {model_path}")
+        
         # Get results
         feature_importance = self.predictor.get_feature_importance()
         
         prediction_results = {
             'metrics': self.predictor.metrics,
             'feature_importance': feature_importance,
-            'training_samples': len(X)
+            'training_samples': len(X),
+            'model_path': str(model_path)
         }
         
         self._results['prediction'] = prediction_results
         
         return prediction_results
     
+    def predict_demand_for_items(self, items: List[Dict]) -> Dict[int, float]:
+        """
+        Predict demand for a list of items using the trained model.
+        
+        Args:
+            items: List of dictionaries with keys ['id', 'price']
+            
+        Returns:
+            Dictionary mapping item_id to predicted daily demand
+        """
+        # Load model if not already loaded
+        if not self.predictor._is_fitted:
+            model_path = Path("models/demand_model.joblib")
+            if model_path.exists():
+                print(f"   🔄 Loading saved demand model from {model_path}...")
+                self.predictor = DemandPredictor.load(model_path)
+            else:
+                print("   ⚠️ No trained model found. Using fallback logic.")
+                return {} # Cannot predict without model
+
+        # Prepare features for prediction
+        # We need to construct a DataFrame with the same features as training data
+        # Features: ['price', 'rating', 'votes', 'index', 'price_bucket', 'rating_score', 'log_price']
+        
+        predictions = {}
+        items_to_predict = []
+        item_indices = []
+        
+        # Get reference data for defaults/lookups
+        dim_menu = self._datasets.get('dim_menu_items', pd.DataFrame())
+        avg_rating = 4.5
+        avg_votes = 50
+        
+        if not dim_menu.empty and 'rating' in dim_menu.columns:
+             avg_rating = dim_menu['rating'].mean()
+             avg_votes = dim_menu['votes'].mean()
+
+        for item in items:
+            item_id = item.get('id')
+            price = item.get('price', 0)
+            
+            # Try to find item in historical data to get real rating/votes
+            # This connects the database item to the training data "knowledge"
+            hist_data = None
+            if not dim_menu.empty and 'id' in dim_menu.columns:
+                hist_data = dim_menu[dim_menu['id'] == item_id]
+            
+            if hist_data is not None and not hist_data.empty:
+                rating = hist_data.iloc[0]['rating']
+                votes = hist_data.iloc[0]['votes']
+            else:
+                # For new items not in training set, use averages (optimistic start)
+                rating = avg_rating
+                votes = avg_votes
+            
+            # Construct row for prediction
+            # Note: 'purchases' column is target, so we don't need it for prediction input
+            # But prepare_features might expect it to exist in the dataframe structure
+            # We'll adapt by manually creating the feature set expected by predict()
+            
+            row = {
+                'price': price,
+                'rating': rating,
+                'votes': votes,
+                'index': item_id,
+                # Engineered features will be handled by predictor if we pass raw df?
+                # Actually predictor.predict expects specific feature columns.
+                # Let's reconstruct them manually to match training logic.
+            }
+            items_to_predict.append(row)
+            item_indices.append(item_id)
+            
+        if not items_to_predict:
+            return {}
+            
+        # Create DataFrame
+        df_pred = pd.DataFrame(items_to_predict)
+        
+        # Apply feature engineering manually
+        # Robust handling for price buckets (qcut fails on small datasets)
+        try:
+            if len(df_pred) >= 5:
+                df_pred['price_bucket'] = pd.qcut(
+                    df_pred['price'].clip(1, 1000), 
+                    q=5, 
+                    labels=False, 
+                    duplicates='drop'
+                ).fillna(2)
+            else:
+                # Fallback for small batches: simple heuristic buckets
+                # 0-50: 0, 50-100: 1, 100-200: 2, 200-500: 3, 500+: 4
+                df_pred['price_bucket'] = pd.cut(
+                    df_pred['price'],
+                    bins=[0, 50, 100, 200, 500, 10000],
+                    labels=[0, 1, 2, 3, 4]
+                ).fillna(2)
+        except Exception:
+            df_pred['price_bucket'] = 2 # Default middle bucket
+        
+        df_pred['rating_score'] = df_pred['rating'] * df_pred['votes']
+        df_pred['log_price'] = np.log1p(df_pred['price'])
+        
+        try:
+            # Run prediction
+            if not predictions: # Only run if not already filled (logic check)
+                predicted_values = self.predictor.predict(df_pred)
+                
+                # Map back to item IDs
+                for idx, item_id in enumerate(item_indices):
+                    # Model predicts total purchases (lifetime/long-term). 
+                    # Converting to estimated DAILY demand.
+                    # Assuming training data covers ~2 years (730 days).
+                    daily_demand = max(0.1, predicted_values[idx] / 730.0)
+                    predictions[item_id] = daily_demand
+                
+        except Exception as e:
+            print(f"   ❌ Prediction failed: {e}")
+            import traceback
+            traceback.print_exc()
+            
+        return predictions
+
     def generate_recommendations(self) -> pd.DataFrame:
         """
         Generate actionable recommendations for all items.
@@ -347,6 +488,59 @@ class MenuAnalysisService:
         
         return self._results
     
+    
+    def classify_database_items(self, items: List[Dict]) -> Dict[int, str]:
+        """
+        Classify database items using trained BCG thresholds.
+        
+        Args:
+            items: List of dicts with 'id' and 'price'
+            
+        Returns:
+            Dict of item_id -> category string (e.g., "⭐ Star")
+        """
+        # 1. Load classifier
+        classifier_path = Path("models/bcg_classifier.joblib")
+        if not classifier_path.exists():
+            return {}
+        
+        try:
+            classifier = MenuClassifier.load(classifier_path)
+        except Exception:
+            return {}
+            
+        # 2. Get demand predictions (daily)
+        # We need estimated TOTAL orders to match training scale (approx 2 years / 730 days)
+        daily_demand = self.predict_demand_for_items(items)
+        
+        results = {}
+        for item in items:
+            item_id = item.get('id')
+            price = item.get('price', 0)
+            
+            # Scale daily demand to match the timeframe used for training thresholds
+            estimated_orders = daily_demand.get(item_id, 0) * 730 
+            
+            # 3. Classify
+            if classifier.thresholds:
+                high_pop = estimated_orders >= classifier.thresholds.popularity
+                high_profit = price >= classifier.thresholds.profitability
+                
+                if high_pop and high_profit:
+                    category = "⭐ Star"
+                elif high_pop and not high_profit:
+                    category = "🐴 Plowhorse"
+                elif not high_pop and high_profit:
+                    category = "❓ Puzzle"
+                else:
+                    category = "🐕 Dog"
+            else:
+                category = "Unknown"
+                
+            results[item_id] = category
+            
+        return results
+
     def get_executive_summary(self) -> Dict:
         """
         Generate executive summary of key findings.

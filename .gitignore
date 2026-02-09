@@ -16,3 +16,5 @@ outputs/
 *.sqlite3
 *.db
 restaurant_data.db
+.venv/
+inventoryM/

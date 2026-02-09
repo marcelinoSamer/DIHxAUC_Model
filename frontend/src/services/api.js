@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_BASE = import.meta.env.VITE_API_URL || "";
+const API_BASE = "http://localhost:8000";
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -99,6 +99,29 @@ export async function getChatHealth() {
 
 export async function getChatUsage() {
   const { data } = await api.get("/chat/usage");
+  return data;
+}
+
+// ── Recommendations endpoints ───────────────────────────────────────────────
+
+export async function getMonthlySuggestions() {
+  const { data } = await api.get("/recommendations/weekly");
+  return data;
+}
+
+export async function getDashboardData() {
+  const { data } = await api.get("/dashboard/data");
+  return data;
+}
+
+export async function submitInventoryData(file) {
+  // Upload CSV file directly to the inventory ingest endpoint
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const { data } = await api.post("/inventory/ingest", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
   return data;
 }
 

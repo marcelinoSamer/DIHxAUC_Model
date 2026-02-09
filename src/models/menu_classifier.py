@@ -17,6 +17,7 @@ import numpy as np
 from typing import Dict, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 
 class MenuCategory(Enum):
@@ -316,3 +317,30 @@ class MenuClassifier:
             lines.append("")
         
         return "\n".join(lines)
+
+    def save(self, path: Path) -> None:
+        """Save classifier thresholds to disk."""
+        import joblib
+        state = {
+            'thresholds': self.thresholds,
+            'percentiles': {
+                'popularity': self.popularity_percentile,
+                'price': self.price_percentile
+            },
+            'category_metrics': self.category_metrics
+        }
+        joblib.dump(state, path)
+
+    @classmethod
+    def load(cls, path: Path) -> 'MenuClassifier':
+        """Load classifier from disk."""
+        import joblib
+        state = joblib.load(path)
+        
+        classifier = cls(
+            popularity_percentile=state['percentiles']['popularity'],
+            price_percentile=state['percentiles']['price']
+        )
+        classifier.thresholds = state['thresholds']
+        classifier.category_metrics = state.get('category_metrics', {})
+        return classifier
