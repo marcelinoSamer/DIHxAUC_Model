@@ -1246,7 +1246,6 @@ async def startup_event():
             menu_svc = MenuAnalysisService(data_dir=data_dir)
             menu_results = menu_svc.run_full_analysis()
             menu_summary = menu_svc.get_executive_summary()
-            _analysis_service = menu_svc
             print("   ✅ Menu analysis complete")
 
             # Inventory analysis (demand forecast, stock alerts)
@@ -1254,7 +1253,19 @@ async def startup_event():
             inv_svc = InventoryAnalysisService(data_dir=data_dir)
             inv_results = inv_svc.run_full_analysis(verbose=False)
             _inventory_results = inv_results
-            print("   ✅ Inventory analysis complete")
+            
+            # Log what we got
+            inv_alerts = inv_results.get('inventory', {}).get('alerts', pd.DataFrame())
+            if isinstance(inv_alerts, pd.DataFrame) and not inv_alerts.empty:
+                n_crit = int(inv_alerts['status'].str.contains('Critical', na=False).sum())
+                n_low = int(inv_alerts['status'].str.contains('Low', na=False).sum())
+                n_exc = int(inv_alerts['status'].str.contains('Excess', na=False).sum())
+                print(f"   ✅ Inventory analysis complete: {n_crit} critical, {n_low} low, {n_exc} excess")
+            else:
+                print("   ✅ Inventory analysis complete (no alerts)")
+
+            # Set _analysis_service LAST so dashboard doesn't serve partial data
+            _analysis_service = menu_svc
 
             # Feed everything into the chat context
             chat_svc.load_analysis_context(
