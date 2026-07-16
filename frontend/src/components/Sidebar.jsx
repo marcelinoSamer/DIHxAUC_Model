@@ -25,7 +25,7 @@ export default function Sidebar({ active, onNavigate, collapsed, onToggle }) {
         {!collapsed && (
           <div className="sidebar-brand">
             <span className="brand-icon">🍽️</span>
-            <span className="brand-text">FlavorFlow</span>
+            <span className="brand-text">ForecastRex</span>
           </div>
         )}
         <button className="sidebar-toggle" onClick={onToggle}>

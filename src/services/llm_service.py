@@ -1,8 +1,8 @@
 """
 File: llm_service.py
-Description: Provider-agnostic LLM service for the FlavorFlow chatbot.
+Description: Provider-agnostic LLM service for the ForecastRex chatbot.
 Dependencies: httpx (async HTTP client)
-Author: FlavorFlow Team
+Author: ForecastRex Team
 
 Supports multiple free-tier LLM providers:
   - Groq   (default) — free, fast, OpenAI-compatible
@@ -35,7 +35,7 @@ load_dotenv(_env_path)
 # Also try CWD-relative .env as fallback
 load_dotenv()
 
-logger = logging.getLogger("flavorflow.llm")
+logger = logging.getLogger("ForecastRex.llm")
 
 
 # ─── Provider definitions ────────────────────────────────────────────────────

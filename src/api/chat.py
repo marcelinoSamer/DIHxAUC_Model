@@ -2,7 +2,7 @@
 File: chat.py
 Description: FastAPI router for the chatbot endpoints.
 Dependencies: fastapi, src.services.chat_service
-Author: FlavorFlow Team
+Author: ForecastRex Team
 
 Provides REST endpoints that the React frontend will consume:
 
